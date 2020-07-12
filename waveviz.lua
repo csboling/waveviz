@@ -2,12 +2,17 @@
 -- view audio file waveforms
 -- just one channel right now
 --
+-- K1: alt
+-- K2: center window on cursor
+-- K3: center cursor in window
+--  alt: copy buffer to cursor
 -- E1: zoom
---  with K1 held: scale drawn amplitude
+--  alt: scale amplitude
 -- E2: move transport
 -- E3: move cursor
--- K2: center transport on cursor
--- K3: center cursor in window
+--
+-- call save_buffer(fname)
+-- to save buffer contents
 
 local clipsize = 0
 local winstart = 0
@@ -71,9 +76,10 @@ function delta_scale(d)
 end
 
 function double_buffer()
-  print('double!')
-  softcut.buffer_copy_mono(1, 1, 0, clipsize, clipsize)
-  clipsize = clipsize * 2
+  local cursor_sec = winstart + (cursor - 1) * interval
+  softcut.buffer_copy_mono(1, 1, 0, cursor_sec, clipsize, 0.1, 1)
+  print('copy ' .. clipsize .. ' to ' .. cursor_sec)
+  clipsize = clipsize + clipsize - cursor_sec
   update_content()
 end
 
@@ -83,18 +89,46 @@ function load_sample(f)
   end
   print('load ' .. f)
   local chs, frames, rate = audio.file_info(f)
+
+  -- include fadeout time
   clipsize = frames / rate
   winstart = 0
   winend = clipsize
-  print('sample is ' .. clipsize .. ' seconds')
+  print('sample is ' .. frames / rate .. ' seconds')
 
+  softcut.buffer_clear()
   softcut.buffer_read_mono(f, 0, 0, -1, 1, 1)
+  softcut.loop_end(1, clipsize)
   update_content()
+end
+
+function save_buffer(f)
+  local fname = paths.audio .. 'waveviz-' .. f .. '.wav'
+  softcut.buffer_write_mono(fname, 0, clipsize, 1)
+  print('wrote to ' .. fname)
 end
 
 function init()
   params:add_file('sample', 'sample')
   params:set_action('sample', function (f) load_sample(f) end)
+
+  params:add_option('playing', 'playing', {'off', 'on'}, 1)
+  params:set_action('playing', function (v)
+    print('playing: ' .. v) 
+    if v == 2 then
+      softcut.enable(1, 1)
+      softcut.buffer(1, 1)
+      softcut.level(1, 1)
+      softcut.loop(1, 1)
+      softcut.loop_start(1, 0)
+      softcut.loop_end(1, clipsize)
+      softcut.rate(1, 1)
+      softcut.position(1, 0)
+      softcut.play(1, 1)
+    else
+      softcut.play(1, 0)
+    end
+  end)
 
   redraw()
 end
@@ -139,7 +173,7 @@ function redraw()
   screen.level(1)
   y = y + 8
   screen.move(x, y)
-  screen.text('1.0=' .. string.format('%d', 2 * scale) .. 'px')
+  screen.text('1.0=' .. string.format('%d', scale) .. 'px')
 
   x = x + 48
   screen.move(x, y)
