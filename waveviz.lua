@@ -14,14 +14,18 @@
 -- call save_buffer(fname)
 -- to save buffer contents
 
-local clipsize = 0
-local winstart = 0
-local winend = 0
-local cursor = 1
+clipsize = 0
+winstart = 0
+winend = 0
+winsize = 0
+cursor = 1
+scale = 20
+
 local interval = 0
 local samples = {}
-local scale = 20
+
 local held_keys = {}
+local screen_dirty = true
 
 function update_content()
   softcut.render_buffer(
@@ -30,35 +34,36 @@ function update_content()
        cursor = util.clamp(cursor, 1, #s)
        samples = s
        interval = i
-       redraw()
+       screen_dirty = true
      end)
 end
 
 function delta_zoom(d)
-  local range = winend - winstart
   if d > 0 then
-    range = range / 2
+    winsize = math.max(winsize / 2, 1 / 48000)
   elseif d < 0 then
-    range = range * 2
+    winsize = math.min(winsize * 2, clipsize)
   end
   local center_sec = winstart + util.round(#samples / 2) * interval
-  winstart = util.clamp(center_sec - range / 2, 0, clipsize)
-  winend = util.clamp(center_sec + range / 2, 0, clipsize)
+  winstart = util.clamp(center_sec - winsize / 2, 0, clipsize - winsize / 2)
+  winend = util.clamp(center_sec + winsize / 2, winsize / 2, clipsize)
   update_content()
 end
 
 function delta_window(d)
-  local range = winend - winstart
-  if range > 0 then
-    winstart = util.clamp(winstart + d * range * 0.1, 0, clipsize)
-    winend = util.clamp(winend + d * range * 0.1, 0, clipsize)
+  if winsize > 0 then
+    local delta = d * winsize * 0.1
+    winstart = util.clamp(winstart + delta, 0, clipsize - winsize)
+    winend = util.clamp(winend + delta, winsize, clipsize)
+    winsize = winend - winstart
+
     update_content()
   end
 end
 
 function delta_cursor(d)
   cursor = util.clamp(cursor + d, 1, #samples)
-  redraw()
+  screen_dirty = true
 end
 
 function center_cursor()
@@ -67,19 +72,21 @@ function center_cursor()
   cursor = util.round(#samples / 2)
   winstart = util.clamp(cursor_sec - range / 2, 0, clipsize)
   winend = util.clamp(cursor_sec + range / 2, 0, clipsize)
+  winsize = winend - winstart
   update_content()
 end
 
 function delta_scale(d)
   scale = util.clamp(scale + d, 1, 128)
-  redraw()
+  screen_dirty = true
 end
 
 function double_buffer()
   local cursor_sec = winstart + (cursor - 1) * interval
-  softcut.buffer_copy_mono(1, 1, 0, cursor_sec, clipsize, 0.1, 1)
+  softcut.buffer_copy_mono(1, 1, 0, cursor_sec, clipsize, 0.1, 1, 1)
   print('copy ' .. clipsize .. ' to ' .. cursor_sec)
-  clipsize = clipsize + clipsize - cursor_sec
+  clipsize = cursor_sec + clipsize
+  softcut.loop_end(1, clipsize)
   update_content()
 end
 
@@ -94,6 +101,7 @@ function load_sample(f)
   clipsize = frames / rate
   winstart = 0
   winend = clipsize
+  winsize = winend - winstart
   print('sample is ' .. frames / rate .. ' seconds')
 
   softcut.buffer_clear()
@@ -111,6 +119,7 @@ end
 phase = 0
 function phase_poll(v, p)
   phase = p
+  screen_dirty = true
 end
 
 function init()
@@ -125,6 +134,7 @@ function init()
       softcut.buffer(1, 1)
       softcut.level(1, 1)
       softcut.event_phase(phase_poll)
+      softcut.phase_quant(1, 1 / 15)
       softcut.poll_start_phase()
       softcut.loop(1, 1)
       softcut.loop_start(1, 0)
@@ -138,7 +148,15 @@ function init()
     end
   end)
 
-  redraw()
+  redraw_timer = metro.init()
+  redraw_timer.time = 1 / 15
+  redraw_timer.event = function()
+    if screen_dirty then
+      screen_dirty = false
+      redraw()
+    end
+  end
+  redraw_timer:start()
 end
 
 function key(n, z)
@@ -152,7 +170,7 @@ function key(n, z)
         double_buffer()
       else
         cursor = 64
-        redraw()
+        screen_dirty = true
       end
     end
   end
@@ -229,12 +247,15 @@ function redraw()
     end
 
     if phase >= winstart and phase <= winend and winend - winstart > 0 then
-      local cursor_pos = util.round(128 * (phase - winstart) / (winend - winstart))
+      local playhead_pos = 1 + util.round(128 * (phase - winstart) / (winend - winstart))
 
-      screen.move(cursor_pos, 12)
-      screen.level(12)
+      screen.move(playhead_pos, 12)
+      screen.level(6)
       screen.line_rel(0, 40)
       screen.stroke()
+
+      screen.move(playhead_pos, 14)
+      screen.text(string.format('%.5f', phase))
     end
 
     screen.level(1)
