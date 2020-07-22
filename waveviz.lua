@@ -108,17 +108,24 @@ function save_buffer(f)
   print('wrote to ' .. fname)
 end
 
+phase = 0
+function phase_poll(v, p)
+  phase = p
+end
+
 function init()
   params:add_file('sample', 'sample')
   params:set_action('sample', function (f) load_sample(f) end)
 
   params:add_option('playing', 'playing', {'off', 'on'}, 1)
   params:set_action('playing', function (v)
-    print('playing: ' .. v) 
+    print('playing: ' .. v)
     if v == 2 then
       softcut.enable(1, 1)
       softcut.buffer(1, 1)
       softcut.level(1, 1)
+      softcut.event_phase(phase_poll)
+      softcut.poll_start_phase()
       softcut.loop(1, 1)
       softcut.loop_start(1, 0)
       softcut.loop_end(1, clipsize)
@@ -127,6 +134,7 @@ function init()
       softcut.play(1, 1)
     else
       softcut.play(1, 0)
+      softcut.poll_stop_phase()
     end
   end)
 
@@ -191,7 +199,7 @@ function redraw()
         screen.fill()
       end
 
-      local cursor_pos = util.round(cursor * width) + 1 
+      local cursor_pos = util.round(cursor * width) + 1
       screen.move(cursor_pos, 12)
       screen.level(15)
       screen.line_rel(0, 40)
@@ -201,7 +209,7 @@ function redraw()
       screen.text(string.format('%d', math.floor(winstart * 48000) + cursor - 1))
 
       screen.move(cursor_pos, 56)
-      screen.text(string.format('%.5f', cursor_sec)) 
+      screen.text(string.format('%.5f', cursor_sec))
     else
       for i,s in ipairs(samples) do
         local height = util.round(math.abs(s) * scale)
@@ -214,10 +222,19 @@ function redraw()
       screen.move(cursor, 12)
       screen.level(15)
       screen.line_rel(0, 40)
-      screen.stroke()      
+      screen.stroke()
 
       screen.move(cursor, 56)
-      screen.text(string.format('%.5f', cursor_sec)) 
+      screen.text(string.format('%.5f', cursor_sec))
+    end
+
+    if phase >= winstart and phase <= winend and winend - winstart > 0 then
+      local cursor_pos = util.round(128 * (phase - winstart) / (winend - winstart))
+
+      screen.move(cursor_pos, 12)
+      screen.level(12)
+      screen.line_rel(0, 40)
+      screen.stroke()
     end
 
     screen.level(1)
