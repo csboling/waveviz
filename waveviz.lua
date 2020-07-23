@@ -246,13 +246,13 @@ function enc(n, d)
     end
   elseif n == 2 then
     if held_keys[1] then
-      params:delta('preserve', d * 0.1)
+      params:delta('preserve', d * 0.05)
     else
       delta_window(d)
     end
   elseif n == 3 then
     if held_keys[1] then
-      params:delta('rate', d * 0.1)
+      params:delta('rate', d * 0.05)
     else
       delta_cursor(d)
     end
