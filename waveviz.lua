@@ -35,7 +35,6 @@ local held_keys = {}
 local screen_dirty = true
 
 function on_render(ch, start, i, s)
-  print('render ' .. ' starting at ' .. start)
   cursor = util.clamp(cursor, 1, #s)
   samples = s
   interval = i
