@@ -14,8 +14,10 @@
 -- E3: move cursor
 --  alt: playback rate
 --
--- call save_buffer(fname)
--- to save buffer contents
+-- repl functions:
+--  save_buffer(fname)
+--  clear()
+--  clear(new_loop_len)
 
 loopsize = 0
 winstart = 0
@@ -23,24 +25,25 @@ winend = 0
 winsize = 0
 cursor = 1
 scale = 20
+samples = {}
 
 local recording = false
 local playing = false
 local interval = 0
-local samples = {}
 
 local held_keys = {}
 local screen_dirty = true
 
+function on_render(ch, start, i, s)
+  print('render ' .. ' starting at ' .. start)
+  cursor = util.clamp(cursor, 1, #s)
+  samples = s
+  interval = i
+  screen_dirty = true
+end
+
 function update_content()
-  softcut.render_buffer(
-     1, winstart, winend - winstart, 128,
-     function(ch, start, i, s)
-       cursor = util.clamp(cursor, 1, #s)
-       samples = s
-       interval = i
-       screen_dirty = true
-     end)
+  softcut.render_buffer(1, winstart, winend - winstart, 128)
 end
 
 function delta_zoom(d)
@@ -127,6 +130,7 @@ function init()
   softcut.level(1, 1)
   softcut.event_phase(phase_poll)
   softcut.phase_quant(1, 1 / 15)
+  softcut.event_render(on_render)
   softcut.loop(1, 1)
   softcut.rate(1, 1)
   softcut.position(1, 0)
@@ -259,6 +263,15 @@ function enc(n, d)
   end
 end
 
+function draw_cursor_caption(caption, pos)
+  local extents = screen.text_extents(caption)
+  if extents + pos > 128 then
+    screen.text_right(caption)
+  else
+    screen.text(caption)
+  end
+end
+
 function redraw()
   screen.clear()
 
@@ -296,10 +309,12 @@ function redraw()
       screen.stroke()
 
       screen.move(cursor_pos, 48)
-      screen.text(string.format('%d', math.floor(winstart * 48000) + cursor - 1))
+      draw_cursor_caption(
+        string.format('%d', math.floor(winstart * 48000) + cursor - 1),
+	cursor_pos)
 
       screen.move(cursor_pos, 56)
-      screen.text(string.format('%.5f', cursor_sec))
+      draw_cursor_caption(string.format('%.5f', cursor_sec), cursor_pos)
     else
       for i,s in ipairs(samples) do
         local height = util.round(math.abs(s) * scale)
@@ -315,7 +330,7 @@ function redraw()
       screen.stroke()
 
       screen.move(cursor, 56)
-      screen.text(string.format('%.5f', cursor_sec))
+      draw_cursor_caption(string.format('%.5f', cursor_sec), cursor)
     end
 
     -- playhead
@@ -328,7 +343,7 @@ function redraw()
       screen.stroke()
 
       screen.move(playhead_pos, 14)
-      screen.text(string.format('%.5f', phase))
+      draw_cursor_caption(string.format('%.5f', phase), playhead_pos)
     end
 
     -- sample and value captions
@@ -380,4 +395,31 @@ function redraw()
   end
 
   screen.update()
+end
+
+-- repl functions for debugging
+function double_buffer()
+  softcut.buffer_copy_mono(1, 1, 0, loopsize, loopsize + 0.1, 0, 1, 0)
+  loopsize = loopsize * 2
+  softcut.loop_end(1, loopsize)
+  update_content()
+end
+
+function copy_to_cursor(reverse)
+  local cursor_sec = winstart + (cursor - 1) * interval
+  softcut.buffer_copy_mono(1, 1, 0, cursor_sec, loopsize, 1, 0, reverse and 1 or 0)
+  loopsize = loopsize + cursor_sec
+  softcut.loop_end(1, loopsize)
+  update_content()
+end
+
+function clear(len)
+  softcut.buffer_clear(1)
+  if len ~= nil then
+    loopsize = len
+    winstart = 0
+    winend = loopsize
+    softcut.loop_end(1, loopsize)
+  end
+  update_content()
 end
